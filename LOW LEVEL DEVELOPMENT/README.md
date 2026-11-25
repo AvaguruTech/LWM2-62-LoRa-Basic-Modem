@@ -1,0 +1,301 @@
+# LWM2-62 Smart IoT Terminal
+
+This folder contains the firmware and project documentation for the
+**LWM2-62 LoRa end-device module**. The module combines an
+**STM32L071KBU6 Cortex-M0+ MCU** and a **Semtech SX1262** transceiver.
+
+The firmware provides LoRaWAN, LoRaWAN multicast, raw P2P LoRa, UART terminal
+control, I2C sensor support, and EEPROM-backed configuration.
+
+## Documentation
+
+- [`LWM2-62.pdf`](./LWM2-62.pdf) - detailed project documentation, Revision 3
+  (25 November 2026).
+
+## Firmware project
+
+The Keil uVision project is at:
+
+[`LWM2-62/LWM2-62/MDK-ARM/stm32_LoRa.uvprojx`](./LWM2-62/LWM2-62/MDK-ARM/stm32_LoRa.uvprojx)
+
+### Main application files
+
+| File | Purpose |
+|---|---|
+| [`lora_app.c`](./LWM2-62/LWM2-62/MDK-ARM/lora_app.c) / [`.h`](./LWM2-62/LWM2-62/MDK-ARM/lora_app.h) | LoRaWAN/P2P operation, terminal commands, operating modes, multicast, radio profiles, and key configuration. |
+| [`bsp_mcu.c`](./LWM2-62/LWM2-62/MDK-ARM/bsp_mcu.c) / [`.h`](./LWM2-62/LWM2-62/MDK-ARM/bsp_mcu.h) | Clocks, USART2 console, I2C, RTC/Stop mode, watchdog, delays, and wake handling. |
+| [`eeprom_manager.c`](./LWM2-62/LWM2-62/MDK-ARM/eeprom_manager.c) / [`.h`](./LWM2-62/LWM2-62/MDK-ARM/eeprom_manager.h) | Device identity, keys, frame-counter reservation, and multicast A/B EEPROM storage. |
+| [`sensor_manager.c`](./LWM2-62/LWM2-62/MDK-ARM/sensor_manager.c) / [`.h`](./LWM2-62/LWM2-62/MDK-ARM/sensor_manager.h) | Sensor registry, Cayenne-LPP uplinks, and FPort 16 sensor commands. |
+| [`modem_pinout.h`](./LWM2-62/LWM2-62/MDK-ARM/modem_pinout.h) | MCU-to-SX1262 pin mapping used by the Semtech HAL. |
+
+The `Core/` and `Drivers/` directories contain STM32L0 HAL/CMSIS and startup
+support. [`SWL2001-master/`](./LWM2-62/LWM2-62/SWL2001-master/) contains the
+Semtech LoRa Basics Modem stack, radio drivers, cryptography, MCU HAL, and
+LoRaWAN package support.
+
+## Supported features
+
+- LoRaWAN unicast: ABP or OTAA activation
+- LoRaWAN Class A or Class C
+- IN865 regional operation
+- LoRaWAN multicast with manual provisioning or Remote Multicast Setup on FPort 200
+- Runtime switch between LoRaWAN and raw P2P LoRa
+- Three operating modes: timed wake, deep sleep, and always-on
+- UART terminal command interface
+- `*CFG#` EEPROM key and identity provisioning
+- CRC-protected application configuration
+- Power-fail-safe multicast EEPROM storage using A/B slots
+- Sensor telemetry on FPort 15 and sensor commands on FPort 16
+- Single-channel gateway profile, TX power capping, and frequency offset
+
+## Hardware connections
+
+| Function | Module pad | MCU pin |
+|---|---:|---|
+| Terminal TX | 5 | PA2 / USART2_TX |
+| Terminal RX | 6 | PA3 / USART2_RX |
+| SWDIO | 11 | PA13 |
+| SWCLK | 12 | PA14 |
+| NRST | 8 | NRST |
+| I2C SCL | 16 | PB6 |
+| I2C SDA | 17 | PB7 |
+| Supply | 4 | 3.0-3.6 V |
+| Ground | 2 / 3 | GND |
+
+Internal SX1262 connections include NSS/PA4, SCK/PA5, MISO/PA6, MOSI/PA7,
+NRST/PB0, BUSY/PB1, and DIO1/PB11.
+
+Use a 3.3 V USB-UART adapter. Never transmit without an antenna or 50 ohm load.
+
+## Terminal setup
+
+- USART2
+- TX: PA2, pad 5
+- RX: PA3, pad 6
+- Baud: 115200
+- Format: 8 data bits, no parity, 1 stop bit
+- PuTTY local echo: Force off
+- PuTTY local line editing: Force off
+
+After reset, the terminal displays the banner, device identity, and command
+summary.
+
+## Quick command reference
+
+| Task | Command |
+|---|---|
+| Show help | `#help` |
+| Show status | `status` |
+| Set operating mode | `mode 0`, `mode 1`, or `mode 2` |
+| Send chat text | Type any text not reserved by the command parser |
+| Read/send sensors | `sensor` |
+| Show RSSI | `rssi` |
+| Sleep now | `sleep` |
+| Show/write LoRaWAN keys | `*CFG# SHOW KEYS` / `*CFG# <NAME> <LEN> <HEX>` |
+| Reboot after provisioning | `*CFG# REBOOT YES` |
+| Enter or leave multicast cast mode | `multicast` / `unicast` |
+| Show multicast state | `mc show` |
+| Enter or leave P2P | `p2p` / `lorawan` |
+| Set P2P spreading factor | `psf <7..12>` |
+| Enable or disable single-channel profile | `sc on` / `sc off` |
+| Set TX power cap | `txp <dBm>` or `txp off` |
+| Set frequency offset | `sco <Hz>` or `sco 0` |
+
+Type `mc help`, `*CFG# HELP`, or `#help` for context-specific command help.
+Normal commands are case-insensitive and ignore spaces.
+
+## Operating modes
+
+| Mode | Behaviour |
+|---:|---|
+| 0 | Timed wake: Stop mode with UART/RTC wake-up. |
+| 1 | Deep sleep: longer periodic timer with a receive window. |
+| 2 | Always-on: receiver stays available; required for multicast. |
+
+The default boot mode is 1.
+
+## LoRaWAN provisioning
+
+The default activation mode is **ABP**. Keys and identity can be configured
+over the terminal without recompiling:
+
+```text
+*CFG# DEVEUI 8 70B3D57ED0012345
+*CFG# DEVADDR 4 01997FAE
+*CFG# NWKSKEY 16 2B7E151628AED2A6ABF7158809CF4F3C
+*CFG# APPSKEY 16 2B7E151628AED2A6ABF7158809CF4F3C
+*CFG# SHOW KEYS
+*CFG# REBOOT YES
+```
+
+For OTAA, build with `LORA_ACTIVATION_MODE =
+CUSTOM_ACTIVATION_MODE_OTAA`, then provision `DEVEUI`, `JOINEUI`, `APPKEY`,
+and `GENAPPKEY`.
+
+ABP frame-counter validation must be disabled or appropriately configured in
+ChirpStack because the modem restarts counters after reboot. `*CFG# SHOW KEYS`
+and `mc keys` print sensitive values and should be disabled or protected in a
+released product.
+
+## Multicast
+
+Multicast mode uses Class C and requires always-on mode 2.
+
+Manual provisioning example:
+
+```text
+multicast
+mc set 0 004b4098 bd0d0c4867a66d4ab35bcbba68da558e a4dcd1742a4cb22e01b77025a0e73724
+mc start 0 866550000 2 0
+status
+```
+
+The example address and keys are for bench use only. In ChirpStack, create a
+Class-C multicast group for IN865, add the gateway and device, and use the
+multicast group's address, network key, application key, frequency, and data
+rate.
+
+The firmware also accepts LoRa Alliance Remote Multicast Setup package
+commands on FPort 200. Provision a unique `GENAPPKEY` on the device and
+ChirpStack, enter multicast mode, and send the package 2/version 1 setup
+requests from the network server.
+
+Multicast controls:
+
+- `mc help` - command guide
+- `mc show` - configured groups and session state
+- `mc keys` - stored multicast and session keys
+- `mc set <g> <addr> <nwk-key> <app-key>` - configure a group
+- `mc clear [g]` - clear one group or all groups
+- `mc start <g> <frequency-hz> <dr> [timeout-s]` - start a session
+- `mc stop [g]` - stop one session or all sessions
+
+## Sensor FPorts
+
+| FPort | Direction | Use |
+|---:|---|---|
+| 10 | Up/down | Terminal chat text |
+| 15 | Uplink | Cayenne-LPP sensor telemetry |
+| 16 | Downlink | Enable or disable a sensor |
+| 200 | Down/up | Remote Multicast Setup |
+| 201 | Down | Fragmented-data stub |
+| 202 | Down | Clock-sync stub |
+
+Example telemetry:
+
+```text
+Sensor 1 temperature 25.5 C: 01 67 00 FF
+Sensor 2 humidity 58 %RH: 02 68 74
+FPort 15 payload with both enabled: 01 67 00 FF 02 68 74
+```
+
+The current temperature and humidity drivers are mock drivers. Replace
+`mock_temp_read()` and `mock_humidity_read()` in `sensor_manager.c` to support
+real I2C sensors.
+
+To disable sensor 1 from ChirpStack, enqueue a downlink on FPort 16 with payload
+`01 00`. Use `01 01` to enable it. Use `02 00` or `02 01` for sensor 2.
+
+## Radio profiles
+
+### Single-channel gateway
+
+```text
+sc on
+hello
+sc off
+```
+
+`sc on` uses 865.0625 MHz, DR0/SF12, with a 51-byte payload limit and is intended
+for low-cost single-channel gateways. It cannot be combined with P2P or
+multicast.
+
+### TX power and frequency offset
+
+```text
+txp -9
+txp off
+sco 3000
+sco 0
+```
+
+`txp` limits TX power to -9 through 22 dBm. `sco` shifts RX/TX frequency by
+-20 kHz through +20 kHz.
+
+### Raw P2P
+
+```text
+p2p
+mode 2
+ping
+status
+stop
+lorawan
+```
+
+The P2P default is 865.0625 MHz, SF12, BW125 kHz, coding rate 4/5, 8-symbol
+preamble, 14 dBm TX power, and sync word `0x34`. `lorawan` reboots the MCU to
+restore a clean LoRaWAN radio configuration.
+
+## EEPROM layout
+
+The STM32L071 Data EEPROM occupies 0x08080000-0x080817FF:
+
+| Address | Content |
+|---|---|
+| 0x08080000-0x080800FF | Factory area: DevEUI and DevAddr |
+| 0x08080100-0x0808017F | Application configuration, keys, CRC, and frame-counter ceilings |
+| 0x08080200-0x080802FF | Multicast slot A |
+| 0x08080300-0x080803FF | Multicast slot B |
+
+Multicast configuration is written to alternating A/B slots. The newest valid,
+CRC-checked slot wins after a reboot or power interruption.
+
+## Building
+
+1. Open `stm32_LoRa.uvprojx` in Keil uVision.
+2. Select the `Target_1` configuration.
+3. Build and flash through ST-Link SWD.
+4. Connect a 3.3 V USB-UART adapter to pads 5/6 and ground.
+5. Open a terminal at 115200 baud, 8N1.
+6. Reset the module and use `status` and `#help`.
+
+Ensure that `region_in_865.c` and `ral_sx126x.c` patches are present for
+single-channel, TX-cap, and frequency-offset features. The multicast build must
+include `SMTC_MULTICAST`.
+
+## Known limitations and production checks
+
+- Flash read-out protection should be enabled for deployed devices.
+- Avoid reusing a bench `GENAPPKEY`; generate one unique 16-byte key per device.
+- Remove or protect `*CFG# SHOW KEYS`, `mc keys`, and key-provisioning handlers
+  if UART access must not reveal or change credentials.
+- Multicast and always-on mode keep the SX1262 receive chain active (about
+  17 mA) and are not suitable for low-duty-cycle battery applications.
+- The existing multicast downlink-window detection may be disabled by
+  `APP_MC_WINDOW_DETECT = 0`; verify modem enum names before enabling it.
+- The test sensor implementation uses mock readings. Replace it with real I2C
+  drivers for production.
+- Class B multicast sessions are not implemented.
+- Verify the SX1262 reference-clock design (crystal or TCXO) for P2P timing.
+- ChirpStack ABP frame-counter validation and multicast data-rate/frequency
+  settings must match the device configuration.
+
+## UART-to-I2C migration considerations
+
+I2C is currently used for external sensors only. It is not a replacement host
+UART unless the firmware implements an I2C target role and command protocol.
+
+To convert the host interface:
+
+1. Confirm the carrier-board pinout and 3.3 V compatibility.
+2. Define an I2C target address, command IDs, payload lengths, responses, and
+   error codes.
+3. Implement I2C target receive/transmit handling in `bsp_mcu.c`.
+4. Route terminal commands and responses through the I2C protocol instead of
+   USART2, or retain UART as a debug interface.
+5. Rework Stop-mode wake handling: PA3/EXTI3 UART wake-up will not wake the MCU
+   for unrelated I2C traffic.
+6. Separate sensor and host I2C addresses and roles if both share one bus.
+7. Test startup, repeated transfers, bus errors, low-power wake, and sensor
+   behavior with hardware.
