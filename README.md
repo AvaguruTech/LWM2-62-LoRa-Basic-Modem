@@ -67,17 +67,28 @@ SX1262 design:
 
 
 
-### `QUICK_START`
+### `READY TO USE FIRMWARE IMAGES`
 
-The `UART/` subfolder contains a ready-to-flash Intel HEX firmware image:
+The `READY TO USE FIRMWARE IMAGES/` folder contains the ready-to-use firmware
+package:
 
-- [`LWM2-62-firmware.hex`](./QUICK_START/UART/LWM2-62-firmware.hex) — a
-  prebuilt firmware image copied from the Keil project output. You do not need
-  to install Keil or rebuild the source just to flash this image.
+- [`LWM2-62.hex`](./READY%20TO%20USE%20FIRMWARE%20IMAGES/LWM2-62.hex) — the
+  supplied prebuilt Intel HEX image for the LWM2-62 module.
+- [Firmware description](./READY%20TO%20USE%20FIRMWARE%20IMAGES/README.md) —
+  documents the functions available in the HEX image.
 
-This image is the firmware build currently supplied with the project. Flashing
-it does not configure the module for a different UART setup or replace UART
-with I2C; those changes require firmware development and a new build.
+The firmware provides LoRaWAN communication, a USART2 UART terminal, I2C1
+sensor support, terminal-based `*CFG#` key configuration, LoRaWAN multicast,
+raw P2P LoRa, a single-channel gateway profile, and radio tuning functions.
+It includes Class A and Class C operation, ABP and OTAA activation support,
+EEPROM-backed configuration, and Cayenne-LPP sensor uplinks.
+
+The UART interface is used for terminal commands such as `HI LORA`, `sensor`,
+`status`, `*CFG# SHOW KEYS`, `mc`, `p2p`, and `sc`. The I2C1 interface is used
+by the firmware to communicate with registered temperature and humidity
+sensors. The current sensor drivers generate simulated values and require real
+I2C sensor drivers for actual field measurements.
+
 
 ## Exploring the module
 
