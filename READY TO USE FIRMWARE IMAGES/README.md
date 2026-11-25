@@ -1,0 +1,422 @@
+# LINK-LOGIX LWM2-62 Firmware
+
+## 1. Purpose
+
+This document describes the capabilities contained in the supplied
+`LWM2-62.hex` Intel HEX firmware image for the LINK-LOGIX LWM2-62 Smart IoT
+Terminal.
+
+The firmware is compiled for an STM32L071KBU6 microcontroller and a Semtech
+SX1262 LoRa transceiver. It provides LoRaWAN communication, terminal
+operation, I2C sensor support, LoRaWAN multicast, raw P2P LoRa, and radio
+configuration functions in a single firmware image.
+
+## 2. Communication Interfaces
+
+### 2.1 UART Interface
+
+The firmware provides an interactive UART terminal for configuration,
+diagnostics, uplink testing, and radio control.
+
+| Parameter | Firmware configuration |
+|---|---|
+| Peripheral | USART2 |
+| TX pin | PA2 / USART2_TX |
+| RX pin | PA3 / USART2_RX |
+| Baud rate | 115200 bps |
+| Data format | 8 data bits, no parity, 1 stop bit |
+| Flow control | None |
+
+The terminal supports command entry, startup and status messages, uplink and
+downlink activity, sensor output, error messages, and key configuration.
+Commands are not case-sensitive, and unnecessary spaces are ignored.
+
+The main UART test command is:
+
+```text
+HI LORA
+```
+
+This command sends `HI LORA` as a LoRaWAN uplink on FPort 10.
+
+### 2.2 I2C Interface
+
+I2C1 is used by the firmware to communicate with registered external sensors.
+The I2C interface is not implemented as a host-controller interface for
+external application processors.
+
+| Parameter | Firmware configuration |
+|---|---|
+| Peripheral | I2C1 |
+| SCL pin | PB6 / I2C1_SCL |
+| SDA pin | PB7 / I2C1_SDA |
+| Alternate function | AF1 |
+| GPIO mode | Alternate function, open-drain |
+| Bus speed | 100 kHz standard mode |
+| Timing register | 0x00707CBB at 32 MHz |
+
+The sensor command is:
+
+```text
+sensor
+```
+
+This command reads the registered sensors, prepares the Cayenne-LPP payload,
+and requests a LoRaWAN uplink on **FPort 15**.
+
+The supplied firmware includes simulated temperature and humidity drivers.
+Real sensor drivers are required to provide actual field measurements.
+
+## 3. LoRaWAN Communication
+
+The firmware uses the Semtech SWL2001 / LoRa Basics Modem stack to provide
+LoRaWAN communication in the Indian IN865 region.
+
+### 3.1 Activation Modes
+
+The firmware supports:
+
+- Activation By Personalization (ABP)
+- Over-The-Air Activation (OTAA)
+
+The default activation configuration is ABP. OTAA is available through the
+compiled firmware configuration and the same terminal-based provisioning
+system.
+
+### 3.2 LoRaWAN Classes
+
+The firmware supports LoRaWAN Class A and Class C.
+
+| Class | Behaviour |
+|---|---|
+| Class A | Opens receive windows RX1 and RX2 after each uplink |
+| Class C | Keeps the receiver available while not transmitting |
+
+For multicast operation, the firmware uses Class C and always-on operating
+mode.
+
+## 4. LoRaWAN Network Server Configuration
+
+The firmware can operate with a LoRaWAN network server such as ChirpStack.
+It stores device identity and session keys in the STM32 Data EEPROM.
+
+The device identity and keys may be configured through the UART terminal
+without recompiling or reprogramming the firmware.
+
+## 5. Key Configuration Commands
+
+The `*CFG#` command family configures LoRaWAN identity and cryptographic keys.
+Each key write is verified by read-back and protected by a CRC-32 key-block
+check.
+
+### 5.1 Supported Commands
+
+```text
+*CFG# SHOW
+*CFG# SHOW KEYS
+*CFG# REBOOT YES
+*CFG# HELP
+```
+
+The general provisioning syntax is:
+
+```text
+*CFG# <NAME> <LENGTH> <HEX>
+```
+
+### 5.2 Configurable Values
+
+| Name | Length | Purpose |
+|---|---:|---|
+| `DEVEUI` | 8 bytes | LoRaWAN device EUI |
+| `DEVADDR` | 4 bytes | ABP device address |
+| `NWKSKEY` | 16 bytes | ABP network session key |
+| `APPSKEY` | 16 bytes | ABP application session key |
+| `JOINEUI` | 8 bytes | OTAA JoinEUI/AppEUI |
+| `APPKEY` | 16 bytes | OTAA network key input |
+| `GENAPPKEY` | 16 bytes | OTAA application key and multicast root key |
+
+Example ABP provisioning:
+
+```text
+*CFG# DEVEUI 8 70B3D57ED0012345
+*CFG# DEVADDR 4 01997FAE
+*CFG# NWKSKEY 16 2B7E151628AED2A6ABF7158809CF4F3C
+*CFG# APPSKEY 16 2B7E151628AED2A6ABF7158809CF4F3C
+*CFG# REBOOT YES
+```
+
+After provisioning, `*CFG# SHOW KEYS` prints the configured values for
+verification. Configuration changes apply after reboot.
+
+> **Security note:** `*CFG# SHOW KEYS` prints keys in clear text and the
+> provisioning interface has no password. For production firmware, remove or
+> protect the key-display and key-write commands and enable STM32 flash
+> read-out protection.
+
+## 6. EEPROM Storage
+
+The firmware stores persistent configuration in the STM32L071 Data EEPROM.
+
+| EEPROM Area | Stored information |
+|---|---|
+| Factory area | Device EUI and device address |
+| Application block | JoinEUI, application key, multicast root key, session keys, CRC, and frame-counter ceilings |
+| Multicast slot A | Multicast group table |
+| Multicast slot B | Backup multicast group table |
+
+The multicast A/B slots use sequence numbers and CRC validation. This allows
+the most recent valid multicast configuration to survive reboot and power
+loss. The firmware preserves the previous valid slot if a power interruption
+occurs during an update.
+
+ABP uplink frame counters are preserved with reserved blocks of 100 frame
+counter values to reduce EEPROM write operations.
+
+## 7. Operating Modes
+
+The firmware provides three low-power operating modes.
+
+| Mode | Name | Behaviour |
+|---:|---|---|
+| 0 | Timed wake | Stops the MCU; UART or RTC activity returns the module to a timed wake window |
+| 1 | Deep sleep | Uses an extended sleep timer and opens a receive window when the timer expires |
+| 2 | Always-on | Keeps the radio available for uplinks and downlinks without low-power sleep |
+
+The default operating mode is mode 1. Mode 2 is required for Class C multicast
+operation.
+
+## 8. Terminal Command Reference
+
+| Command | Function |
+|---|---|
+| `HI LORA` | Sends a LoRaWAN chat uplink on FPort 10 |
+| `sensor` | Reads sensors and sends Cayenne-LPP telemetry on FPort 15 |
+| `status` | Displays mode, cast mode, radio profile, class, tuning, and multicast state |
+| `rssi` | Displays the latest downlink RSSI/SNR or P2P receive counters |
+| `mode 0` | Selects timed-wake mode |
+| `mode 1` | Selects deep-sleep mode |
+| `mode 2` | Selects always-on mode |
+| `sleep` | Requests an immediate sleep |
+| `help` / `#help` | Displays normal terminal commands |
+
+## 9. Sensor Support and FPorts
+
+The firmware defines the following application ports.
+
+| FPort | Direction | Use |
+|---:|---|---|
+| 10 | Uplink/downlink | Terminal chat text |
+| 15 | Uplink | Cayenne-LPP sensor telemetry |
+| 16 | Downlink | Enable or disable a registered sensor |
+| 200 | Multicast control | Remote Multicast Setup |
+| 201 | Downlink | Fragmented-data transport stub |
+| 202 | Downlink | Clock-sync transport stub |
+
+The registered sensor data is:
+
+| Sensor ID | I2C address | Sensor | Cayenne-LPP type |
+|---:|---:|---|---|
+| `0x01` | `0x48` | Temperature | `0x67` |
+| `0x02` | `0x40` | Humidity | `0x68` |
+
+The current sensor implementation generates simulated values. FPort 16 can
+enable or disable a sensor:
+
+| Payload | Operation |
+|---|---|
+| `01 00` | Disable temperature sensor |
+| `01 01` | Enable temperature sensor |
+| `02 00` | Disable humidity sensor |
+| `02 01` | Enable humidity sensor |
+
+## 10. LoRaWAN Multicast
+
+The firmware implements LoRaWAN Class C multicast with support for up to four
+groups. Multicast allows one downlink to be received by multiple devices
+instead of sending an individual uplink/downlink pair for each device.
+
+Two provisioning methods are available:
+
+### 10.1 Manual Terminal Provisioning
+
+```text
+multicast
+mc set 0 004b4098 bd0d0c4867a66d4ab35bcbba68da558e a4dcd1742a4cb22e01b77025a0e73724
+mc start 0 866550000 2 0
+status
+```
+
+The `mc set` command stores the multicast address, multicast network session
+key, and multicast application session key. The `mc start` command starts a
+Class C multicast session at the specified frequency, data rate, and optional
+timeout.
+
+The multicast command set includes:
+
+| Command | Function |
+|---|---|
+| `mc help` | Displays multicast commands |
+| `mc show` | Displays stored groups and session state |
+| `mc keys` | Displays multicast and GenAppKey values |
+| `mc set` | Adds or updates a multicast group |
+| `mc clear` | Deletes one or all multicast groups |
+| `mc start` | Starts a multicast session |
+| `mc stop` | Stops a multicast session |
+| `unicast` | Leaves multicast mode |
+
+### 10.2 Over-the-Air Multicast Setup
+
+The firmware supports LoRa Alliance Remote Multicast Setup Specification
+v1.0.0 on FPort 200. Package 2, version 1, provides:
+
+- Package-version reporting
+- Group-status reporting
+- `McGroupSetupReq`
+- `McGroupDeleteReq`
+- `McClassCSessionReq`
+
+Over-the-air setup requires the same 16-byte `GENAPPKEY` to be configured in
+the device and ChirpStack. The firmware derives the multicast root key,
+multicast key-encryption key, multicast key, multicast network session key,
+and multicast application session key using AES-128 operations.
+
+Multicast is downlink-only; devices do not acknowledge multicast frames.
+Multicast groups remain stored after reboot and are reloaded into the modem
+when multicast mode is entered.
+
+## 11. Point-to-Point LoRa
+
+The firmware supports raw P2P LoRa communication without a LoRaWAN network
+server. P2P can be:
+
+- selected in a dedicated P2P build at compile time; or
+- entered at runtime with the `p2p` command.
+
+P2P commands:
+
+```text
+p2p
+mode 2
+ping
+stop
+psf 9
+lorawan
+```
+
+The P2P defaults are:
+
+| Parameter | Default |
+|---|---|
+| Frequency | 865.0625 MHz |
+| Spreading factor | SF12 |
+| Bandwidth | 125 kHz |
+| Coding rate | 4/5 |
+| Preamble | 8 symbols |
+| Header | Explicit |
+| CRC | Enabled |
+| Sync word | 0x34 |
+| TX power | 14 dBm |
+
+P2P ping-pong operation sends `PING` frames once per second and responds with
+`PONG` when a valid frame is received. The `rssi` and `status` commands report
+receive counts and CRC error counts.
+
+The `lorawan` command restores LoRaWAN operation by rebooting the MCU.
+
+## 12. Single-Channel Gateway Profile
+
+The firmware contains a single-channel gateway profile compatible with low-cost
+gateways that listen on one frequency and data rate.
+
+```text
+sc on
+sc off
+```
+
+The profile uses:
+
+- Frequency: 865.0625 MHz
+- Data rate: DR0
+- Spreading factor: SF12
+- Bandwidth: 125 kHz
+- Maximum chat payload: 51 bytes
+
+Adaptive Data Rate must be disabled on the network server. The profile is
+mutually exclusive with multicast and P2P operation.
+
+## 13. Radio Tuning
+
+The firmware provides terminal commands for TX power and frequency tuning.
+
+### 13.1 TX Power
+
+```text
+txp
+txp -9
+txp 14
+txp 22
+txp off
+```
+
+The TX power cap range is -9 dBm through 22 dBm. `txp off` removes the
+software cap.
+
+### 13.2 Frequency Offset
+
+```text
+sco
+sco 3000
+sco -3000
+sco 0
+```
+
+The frequency-offset range is -20 kHz through +20 kHz. This can compensate for
+small frequency differences between radios.
+
+### 13.3 P2P Spreading Factor
+
+```text
+psf
+psf 7
+psf 12
+```
+
+The P2P spreading-factor range is SF7 through SF12.
+
+## 14. Low-Power and Radio Behaviour
+
+In timed-wake and deep-sleep modes, the firmware uses:
+
+- STM32 Stop mode
+- RTC wake-up timers
+- An independent watchdog
+- UART wake-up
+- RX and TX wake windows
+- Typing protection to prevent sleep while terminal input is incomplete
+
+In multicast mode, the firmware does not enter low-power sleep because the
+Class C receiver must remain active.
+
+## 15. Cryptographic Functions
+
+The firmware implements LoRaWAN 1.0.x cryptography using:
+
+- AES-128
+- AES-CMAC
+- Frame MIC calculation
+- Uplink/downlink payload encryption
+- OTAA session-key derivation
+- Multicast root-key, key-encryption-key, and session-key derivation
+- 32-bit CRC key-block integrity checking
+
+Multicast key storage is non-confidential without external flash-read
+protection. The firmware requires the flash to be protected and the terminal
+key-display commands to be disabled for a secure production deployment.
+
+---
+
+**Firmware image:** `LWM2-62.hex`
+**Firmware format:** Intel HEX
+**Supported MCU:** STM32L071KBU6
+**Supported radio:** Semtech SX1262
